@@ -13,11 +13,14 @@ const app = express();
 connectDB();
 
 // CORS Configuration
-const allowedOrigin = process.env.FRONTEND_URL || 
-  (process.env.NODE_ENV === "development" ? "http://localhost:5173" : "");
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  "http://localhost:5173", // For local development
+  "https://sparkwave-olive.vercel.app"
+].filter(Boolean);
 
 app.use(cors({
-  origin: allowedOrigin || "*",
+  origin: allowedOrigins.length > 0 ? allowedOrigins : "*",
   credentials: false, // set true only if using cookies
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
   allowedHeaders: ["Content-Type", "Authorization"]
@@ -93,5 +96,5 @@ app.listen(PORT, () => {
   console.log(`📍 Local: http://localhost:${PORT}`);
   console.log(`📍 Health: http://localhost:${PORT}/api/health`);
   console.log(`📍 DB Test: http://localhost:${PORT}/api/test-db`);
-  console.log(`🌐 CORS enabled for: ${allowedOrigin || "*"}\n`);
+  console.log(`🌐 CORS enabled for: ${allowedOrigins.join(", ") || "*"}\n`);
 });
