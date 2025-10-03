@@ -12,8 +12,18 @@ const app = express();
 // Connect to MongoDB
 connectDB();
 
+// CORS Configuration
+const allowedOrigin = process.env.FRONTEND_URL || 
+  (process.env.NODE_ENV === "development" ? "http://localhost:5173" : "");
+
+app.use(cors({
+  origin: allowedOrigin || "*",
+  credentials: false, // set true only if using cookies
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
 // Middlewares
-app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -82,5 +92,6 @@ app.listen(PORT, () => {
   console.log(`\n🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
   console.log(`📍 Local: http://localhost:${PORT}`);
   console.log(`📍 Health: http://localhost:${PORT}/api/health`);
-  console.log(`📍 DB Test: http://localhost:${PORT}/api/test-db\n`);
+  console.log(`📍 DB Test: http://localhost:${PORT}/api/test-db`);
+  console.log(`🌐 CORS enabled for: ${allowedOrigin || "*"}\n`);
 });
