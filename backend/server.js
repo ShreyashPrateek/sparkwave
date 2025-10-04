@@ -1,6 +1,9 @@
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
+import cookieParser from "cookie-parser";
+import authRoutes from "./src/routes/auth.js";
+import authMiddleware from "./src/middleware/auth.js";
 import connectDB from "./src/config/db.js";
 
 // Load environment variables
@@ -21,14 +24,23 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: allowedOrigins.length > 0 ? allowedOrigins : "*",
-  credentials: false, // set true only if using cookies
+  credentials: true, // required for cookies
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
 // Middlewares
+app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Authentication Routes
+app.use("/api/auth", authRoutes);
+
+// Test Protected Route
+app.get("/api/me", authMiddleware, (req, res) => {
+  res.json({ message: "You are authenticated!", userId: req.user.id });
+});
 
 // Test Route
 app.get("/", (req, res) => {
