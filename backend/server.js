@@ -5,6 +5,7 @@ import cookieParser from "cookie-parser";
 import authRoutes from "./src/routes/auth.js";
 import authMiddleware from "./src/middleware/auth.js";
 import connectDB from "./src/config/db.js";
+import postRoutes from "./src/routes/post.js";
 
 // Load environment variables
 dotenv.config();
@@ -36,6 +37,10 @@ app.use(express.urlencoded({ extended: true }));
 
 // Authentication Routes
 app.use("/api/auth", authRoutes);
+
+// Post Routes
+app.use("/api/posts", postRoutes);
+
 
 // Test Protected Route
 app.get("/api/me", authMiddleware, (req, res) => {
