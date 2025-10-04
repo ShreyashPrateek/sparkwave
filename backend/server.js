@@ -6,6 +6,7 @@ import authRoutes from "./src/routes/auth.js";
 import authMiddleware from "./src/middleware/auth.js";
 import connectDB from "./src/config/db.js";
 import postRoutes from "./src/routes/post.js";
+import profileRoutes from "./src/routes/profile.js";
 
 // Load environment variables
 dotenv.config();
@@ -40,6 +41,9 @@ app.use("/api/auth", authRoutes);
 
 // Post Routes
 app.use("/api/posts", postRoutes);
+
+// User Profile Routes
+app.use("/api/users", profileRoutes);
 
 
 // Test Protected Route
