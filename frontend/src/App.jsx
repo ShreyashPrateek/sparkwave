@@ -1,38 +1,19 @@
-import { useState, useEffect } from 'react'
-import './App.css'
-import api from './api/axios'
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import Login from "./pages/Login";
+import Test from "./pages/Test";
+import Register from "./pages/Register";
 
 function App() {
-  const [apiStatus, setApiStatus] = useState('Testing...')
-  const [envVar, setEnvVar] = useState('')
-
-  useEffect(() => {
-    // Show env var
-    setEnvVar(import.meta.env.VITE_API_URL || 'Not set')
-    
-    // Test API connection
-    const testAPI = async () => {
-      try {
-        const response = await api.get('/health')
-        setApiStatus(`✅ Connected: ${response.data.status}`)
-      } catch (error) {
-        setApiStatus(`❌ Failed: ${error.message}`)
-      }
-    }
-    
-    testAPI()
-  }, [])
-
   return (
-    <div style={{ padding: '20px', fontFamily: 'Arial' }}>
-      <h1>🚀 Spark Wave Frontend</h1>
-      <div style={{ background: '#9c4a4aff', padding: '15px', borderRadius: '8px' }}>
-        <h3>Deployment Test Results:</h3>
-        <p><strong>Environment Variable:</strong> {envVar}</p>
-        <p><strong>API Connection:</strong> {apiStatus}</p>
-      </div>
-    </div>
-  )
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Login />} />     {/* Default page */}
+        <Route path="/login" element={<Login />} />     {/* Default page */}
+        <Route path="/register" element={<Register />} />     {/* Default page */}
+        <Route path="/test" element={<Test />} />  {/* Old test screen */}
+      </Routes>
+    </BrowserRouter>
+  );
 }
 
-export default App
+export default App;
