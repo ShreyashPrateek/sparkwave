@@ -11,12 +11,12 @@ const router = express.Router();
 
 /* Helpers */
 const generateAccessToken = (user) =>
-  jwt.sign({ id: user._id }, process.env.JWT_ACCESS_SECRET, {
+  jwt.sign({ id: user._id }, process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET || 'fallback_secret', {
     expiresIn: process.env.ACCESS_TOKEN_EXP || "15m",
   });
 
 const generateRefreshToken = (userId, tokenId) =>
-  jwt.sign({ id: userId, tokenId }, process.env.JWT_REFRESH_SECRET, {
+  jwt.sign({ id: userId, tokenId }, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || 'fallback_secret', {
     expiresIn: process.env.REFRESH_TOKEN_EXP || "30d",
  });
 
@@ -87,7 +87,7 @@ router.post("/refresh", async (req, res) => {
     // Verify token signature
     let payload;
     try {
-      payload = jwt.verify(incoming, process.env.JWT_REFRESH_SECRET);
+      payload = jwt.verify(incoming, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || 'fallback_secret');
     } catch (e) {
       return res.status(401).json({ message: "Invalid refresh token" });
     }

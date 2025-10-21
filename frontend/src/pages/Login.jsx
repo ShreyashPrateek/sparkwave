@@ -26,7 +26,9 @@ export default function Login() {
 
     setLoading(true);
     try {
+      console.log('🔄 Attempting login to:', api.defaults.baseURL);
       const res = await api.post("/auth/login", { email, password });
+      console.log('✅ Login response:', res.data);
 
       const token = res.data?.accessToken || res.data?.token;
       if (!token) throw new Error("No access token returned from server");
@@ -35,6 +37,8 @@ export default function Login() {
       login(res.data.user, token);
       navigate("/home");
     } catch (err) {
+      console.error('❌ Login error:', err);
+      console.error('Error response:', err.response?.data);
       setError(err.response?.data?.message || err.message || "Login failed");
     } finally {
       setLoading(false);

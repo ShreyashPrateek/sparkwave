@@ -1,11 +1,11 @@
 import axios from "axios";
 
 const api = axios.create({
-  baseURL:
-    import.meta.env.MODE === "development"
+  baseURL: import.meta.env.VITE_API_URL || 
+    (import.meta.env.MODE === "development"
       ? "http://localhost:2000/api"
-      : "https://sparkwave-backend-skvy.onrender.com/api",  // Your production URL
-  withCredentials: false, // Only true if using cookies-based auth
+      : "https://sparkwave-backend-skvy.onrender.com/api"),
+  withCredentials: false,
 });
 
 // ✅ Automatically attach token to request headers
