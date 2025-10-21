@@ -92,6 +92,17 @@ app.get("/api/test-db", async (req, res) => {
   }
 });
 
+// Test endpoint to view all users
+app.get("/api/test-users", async (req, res) => {
+  try {
+    const User = (await import("./src/models/User.js")).default;
+    const users = await User.find({}).select("-password").limit(10);
+    res.json({ count: users.length, users });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({

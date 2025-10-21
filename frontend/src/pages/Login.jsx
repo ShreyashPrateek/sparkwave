@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Mail, Lock, ArrowRight, CheckCircle } from "lucide-react";
+import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 
 export default function Login() {
@@ -11,6 +12,7 @@ export default function Login() {
   const [error, setError] = useState("");
   const navigate = useNavigate();
   const location = useLocation();
+  const { login } = useAuth();
   const successMessage = location.state?.message;
 
   const handleLogin = async (e) => {
@@ -26,22 +28,11 @@ export default function Login() {
     try {
       const res = await api.post("/auth/login", { email, password });
 
-      // Prefer accessToken, fallback to token (robust)
       const token = res.data?.accessToken || res.data?.token;
       if (!token) throw new Error("No access token returned from server");
 
-      // Save token under the key you use
-      localStorage.setItem("token", token);
-
-      // Optional: save user object if returned
-      if (res.data?.user) {
-        localStorage.setItem("user", JSON.stringify(res.data.user));
-      }
-
-      // Make sure axios uses this token for immediate subsequent requests
-      api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-
-      // Redirect
+      // Use AuthContext login method
+      login(res.data.user, token);
       navigate("/home");
     } catch (err) {
       setError(err.response?.data?.message || err.message || "Login failed");

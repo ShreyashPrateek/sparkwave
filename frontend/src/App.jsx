@@ -1,18 +1,28 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { AuthProvider } from "./context/AuthContext";
+import ProtectedRoute from "./components/ProtectedRoute";
 import Login from "./pages/Login";
-import Test from "./pages/Test";
 import Register from "./pages/Register";
+import Home from "./pages/Home";
+import Profile from "./pages/Profile";
+import Chat from "./pages/Chat";
+import Test from "./pages/Test";
 
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Login />} />     {/* Default page */}
-        <Route path="/login" element={<Login />} />     {/* Default page */}
-        <Route path="/register" element={<Register />} />     {/* Default page */}
-        <Route path="/test" element={<Test />} />  {/* Old test screen */}
-      </Routes>
-    </BrowserRouter>
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Login />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+          <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+          <Route path="/test" element={<Test />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
 
