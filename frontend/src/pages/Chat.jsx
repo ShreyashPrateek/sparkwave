@@ -1,62 +1,146 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Send, Search, Phone, Video, MoreVertical, Smile } from "lucide-react";
 import Navbar from "../components/Navbar";
+import { useSocket } from "../context/SocketContext";
+import { useAuth } from "../context/AuthContext";
+import api from "../api/axios";
 
 export default function Chat() {
   const [selectedChat, setSelectedChat] = useState(null);
   const [message, setMessage] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [chats, setChats] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [typing, setTyping] = useState(null);
+  const messagesEndRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  
+  const { socket, onlineUsers } = useSocket();
+  const { user } = useAuth();
 
-  const [chats] = useState([
-    {
-      id: 1,
-      name: "Alex Rivera",
-      username: "@alexr",
-      avatar: "AR",
-      lastMessage: "Hey! How's the project going?",
-      time: "2m ago",
-      unread: 2,
-      online: true
-    },
-    {
-      id: 2,
-      name: "Jordan Lee",
-      username: "@jordanl",
-      avatar: "JL",
-      lastMessage: "Thanks for the help earlier!",
-      time: "1h ago",
-      unread: 0,
-      online: false
-    },
-    {
-      id: 3,
-      name: "Emma Watson",
-      username: "@emmaw",
-      avatar: "EW",
-      lastMessage: "Let's catch up soon 😊",
-      time: "3h ago",
-      unread: 1,
-      online: true
+  // Fetch chats on component mount
+  useEffect(() => {
+    fetchChats();
+  }, []);
+
+  // Socket event listeners
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on("newMessage", (newMessage) => {
+      if (selectedChat && 
+          (newMessage.sender._id === selectedChat._id || newMessage.receiver._id === selectedChat._id)) {
+        setMessages(prev => [...prev, newMessage]);
+      }
+      fetchChats(); // Update chat list
+    });
+
+    socket.on("messageSent", (sentMessage) => {
+      setMessages(prev => [...prev, sentMessage]);
+      fetchChats(); // Update chat list
+    });
+
+    socket.on("userTyping", ({ userId, username }) => {
+      if (selectedChat && userId === selectedChat._id) {
+        setTyping(username);
+      }
+    });
+
+    socket.on("userStoppedTyping", ({ userId }) => {
+      if (selectedChat && userId === selectedChat._id) {
+        setTyping(null);
+      }
+    });
+
+    return () => {
+      socket.off("newMessage");
+      socket.off("messageSent");
+      socket.off("userTyping");
+      socket.off("userStoppedTyping");
+    };
+  }, [socket, selectedChat]);
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // Fetch messages when chat is selected
+  useEffect(() => {
+    if (selectedChat) {
+      fetchMessages(selectedChat._id);
+      markAsRead(selectedChat._id);
     }
-  ]);
+  }, [selectedChat]);
 
-  const [messages] = useState({
-    1: [
-      { id: 1, text: "Hey! How's the project going?", sender: "them", time: "2:30 PM" },
-      { id: 2, text: "It's going great! Just finished the authentication system", sender: "me", time: "2:32 PM" },
-      { id: 3, text: "That's awesome! Can't wait to see it", sender: "them", time: "2:33 PM" }
-    ]
-  });
-
-  const handleSendMessage = () => {
-    if (message.trim() && selectedChat) {
-      console.log("Sending message:", message);
-      setMessage("");
+  const fetchChats = async () => {
+    try {
+      const res = await api.get("/chat");
+      setChats(res.data);
+    } catch (error) {
+      console.error("Failed to fetch chats:", error);
     }
   };
 
+  const fetchMessages = async (userId) => {
+    try {
+      const res = await api.get(`/chat/${userId}`);
+      setMessages(res.data);
+    } catch (error) {
+      console.error("Failed to fetch messages:", error);
+    }
+  };
+
+  const markAsRead = async (userId) => {
+    try {
+      await api.put(`/chat/${userId}/read`);
+    } catch (error) {
+      console.error("Failed to mark as read:", error);
+    }
+  };
+
+  const handleSendMessage = () => {
+    if (message.trim() && selectedChat && socket) {
+      socket.emit("sendMessage", {
+        receiverId: selectedChat._id,
+        text: message.trim()
+      });
+      setMessage("");
+      handleStopTyping();
+    }
+  };
+
+  const handleTyping = () => {
+    if (selectedChat && socket) {
+      socket.emit("typing", { receiverId: selectedChat._id });
+      
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        handleStopTyping();
+      }, 1000);
+    }
+  };
+
+  const handleStopTyping = () => {
+    if (selectedChat && socket) {
+      socket.emit("stopTyping", { receiverId: selectedChat._id });
+    }
+  };
+
+  const formatTime = (date) => {
+    return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const getAvatar = (chatUser) => {
+    return (chatUser.name || chatUser.username).slice(0, 2).toUpperCase();
+  };
+
+  const isOnline = (userId) => {
+    return onlineUsers.has(userId);
+  };
+
   const filteredChats = chats.filter(chat =>
-    chat.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (chat.name || chat.username).toLowerCase().includes(searchTerm.toLowerCase()) ||
     chat.username.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -88,40 +172,47 @@ export default function Chat() {
             </div>
 
             <div className="overflow-y-auto h-full">
-              {filteredChats.map(chat => (
+              {filteredChats.length > 0 ? filteredChats.map(chat => (
                 <button
-                  key={chat.id}
+                  key={chat._id}
                   onClick={() => setSelectedChat(chat)}
                   className={`w-full p-4 text-left hover:bg-white hover:bg-opacity-10 transition-all border-b border-white border-opacity-10 ${
-                    selectedChat?.id === chat.id ? 'bg-white bg-opacity-20' : ''
+                    selectedChat?._id === chat._id ? 'bg-white bg-opacity-20' : ''
                   }`}
                 >
                   <div className="flex items-center gap-3">
                     <div className="relative">
                       <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white font-semibold">
-                        {chat.avatar}
+                        {getAvatar(chat)}
                       </div>
-                      {chat.online && (
+                      {isOnline(chat._id) && (
                         <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-purple-900"></div>
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">
-                        <h3 className="text-white font-semibold truncate">{chat.name}</h3>
-                        <span className="text-purple-300 text-xs">{chat.time}</span>
+                        <h3 className="text-white font-semibold truncate">{chat.name || chat.username}</h3>
+                        <span className="text-purple-300 text-xs">
+                          {chat.lastMessageTime ? formatTime(chat.lastMessageTime) : ''}
+                        </span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <p className="text-purple-200 text-sm truncate">{chat.lastMessage}</p>
-                        {chat.unread > 0 && (
+                        <p className="text-purple-200 text-sm truncate">{chat.lastMessage || 'No messages yet'}</p>
+                        {chat.unreadCount > 0 && (
                           <span className="bg-pink-500 text-white text-xs rounded-full px-2 py-1 min-w-[20px] text-center">
-                            {chat.unread}
+                            {chat.unreadCount}
                           </span>
                         )}
                       </div>
                     </div>
                   </div>
                 </button>
-              ))}
+              )) : (
+                <div className="p-8 text-center">
+                  <p className="text-purple-200">No conversations yet</p>
+                  <p className="text-purple-300 text-sm mt-2">Start a conversation by visiting someone's profile</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -134,16 +225,16 @@ export default function Chat() {
                   <div className="flex items-center gap-3">
                     <div className="relative">
                       <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white font-semibold">
-                        {selectedChat.avatar}
+                        {getAvatar(selectedChat)}
                       </div>
-                      {selectedChat.online && (
+                      {isOnline(selectedChat._id) && (
                         <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-purple-900"></div>
                       )}
                     </div>
                     <div>
-                      <h3 className="text-white font-semibold">{selectedChat.name}</h3>
+                      <h3 className="text-white font-semibold">{selectedChat.name || selectedChat.username}</h3>
                       <p className="text-purple-200 text-sm">
-                        {selectedChat.online ? "Online" : "Offline"}
+                        {typing ? `${typing} is typing...` : isOnline(selectedChat._id) ? "Online" : "Offline"}
                       </p>
                     </div>
                   </div>
@@ -162,27 +253,35 @@ export default function Chat() {
 
                 {/* Messages */}
                 <div className="flex-1 p-6 overflow-y-auto space-y-4">
-                  {messages[selectedChat.id]?.map(msg => (
-                    <div
-                      key={msg.id}
-                      className={`flex ${msg.sender === 'me' ? 'justify-end' : 'justify-start'}`}
-                    >
+                  {messages.length > 0 ? messages.map(msg => {
+                    const isMe = msg.sender._id === user.id;
+                    return (
                       <div
-                        className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl ${
-                          msg.sender === 'me'
-                            ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white'
-                            : 'bg-white bg-opacity-20 text-white'
-                        }`}
+                        key={msg._id}
+                        className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
                       >
-                        <p>{msg.text}</p>
-                        <p className={`text-xs mt-1 ${
-                          msg.sender === 'me' ? 'text-purple-100' : 'text-purple-300'
-                        }`}>
-                          {msg.time}
-                        </p>
+                        <div
+                          className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl ${
+                            isMe
+                              ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white'
+                              : 'bg-white bg-opacity-20 text-white'
+                          }`}
+                        >
+                          <p>{msg.text}</p>
+                          <p className={`text-xs mt-1 ${
+                            isMe ? 'text-purple-100' : 'text-purple-300'
+                          }`}>
+                            {formatTime(msg.createdAt)}
+                          </p>
+                        </div>
                       </div>
+                    );
+                  }) : (
+                    <div className="flex items-center justify-center h-full">
+                      <p className="text-purple-200">No messages yet. Start the conversation!</p>
                     </div>
-                  ))}
+                  )}
+                  <div ref={messagesEndRef} />
                 </div>
 
                 {/* Message Input */}
@@ -196,8 +295,15 @@ export default function Chat() {
                         type="text"
                         placeholder="Type a message..."
                         value={message}
-                        onChange={(e) => setMessage(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                        onChange={(e) => {
+                          setMessage(e.target.value);
+                          handleTyping();
+                        }}
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter') {
+                            handleSendMessage();
+                          }
+                        }}
                         className="w-full px-4 py-3 bg-white bg-opacity-10 border border-white border-opacity-20 rounded-xl text-white placeholder-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-400"
                       />
                     </div>
@@ -212,13 +318,13 @@ export default function Chat() {
                 </div>
               </>
             ) : (
-              <div className="flex-1 flex items-center justify-center">
+              <div className="flex items-center justify-center h-full">
                 <div className="text-center">
-                  <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full mx-auto mb-4 flex items-center justify-center">
-                    <Send className="text-white" size={32} />
+                  <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white text-2xl font-bold mx-auto mb-4">
+                    💬
                   </div>
                   <h3 className="text-white text-xl font-semibold mb-2">Select a conversation</h3>
-                  <p className="text-purple-200">Choose from your existing conversations or start a new one</p>
+                  <p className="text-purple-200">Choose a chat from the sidebar to start messaging</p>
                 </div>
               </div>
             )}

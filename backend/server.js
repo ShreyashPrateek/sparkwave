@@ -2,17 +2,24 @@ import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import { createServer } from "http";
+import { Server } from "socket.io";
+import jwt from "jsonwebtoken";
 import authRoutes from "./src/routes/auth.js";
 import authMiddleware from "./src/middleware/auth.js";
 import connectDB from "./src/config/db.js";
 import postRoutes from "./src/routes/post.js";
 import profileRoutes from "./src/routes/profile.js";
+import chatRoutes from "./src/routes/chat.js";
+import Message from "./src/models/Message.js";
+import User from "./src/models/User.js";
 
 // Load environment variables
 dotenv.config();
 
-// Initialize Express app
+// Initialize Express app and HTTP server
 const app = express();
+const server = createServer(app);
 
 // Connect to MongoDB
 connectDB();
@@ -44,6 +51,9 @@ app.use("/api/posts", postRoutes);
 
 // User Profile Routes
 app.use("/api/users", profileRoutes);
+
+// Chat Routes
+app.use("/api/chat", chatRoutes);
 
 
 // Test Protected Route
@@ -121,12 +131,115 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Socket.io setup
+const io = new Server(server, {
+  cors: {
+    origin: allowedOrigins.length > 0 ? allowedOrigins : "*",
+    credentials: true
+  }
+});
+
+// Socket.io middleware for authentication
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth.token;
+    if (!token) throw new Error("No token provided");
+    
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.id).select("-password");
+    if (!user) throw new Error("User not found");
+    
+    socket.userId = user._id.toString();
+    socket.user = user;
+    next();
+  } catch (error) {
+    next(new Error("Authentication failed"));
+  }
+});
+
+// Store online users
+const onlineUsers = new Map();
+
+// Socket.io connection handling
+io.on("connection", (socket) => {
+  console.log(`👤 User ${socket.user.username} connected`);
+  
+  // Add user to online users
+  onlineUsers.set(socket.userId, socket.id);
+  
+  // Broadcast user online status
+  socket.broadcast.emit("userOnline", socket.userId);
+  
+  // Join user to their own room
+  socket.join(socket.userId);
+  
+  // Handle sending messages
+  socket.on("sendMessage", async (data) => {
+    try {
+      const { receiverId, text } = data;
+      
+      // Save message to database
+      const message = new Message({
+        sender: socket.userId,
+        receiver: receiverId,
+        text: text.trim()
+      });
+      
+      await message.save();
+      
+      // Populate sender info
+      await message.populate("sender", "username name avatar");
+      await message.populate("receiver", "username name avatar");
+      
+      // Send to receiver if online
+      const receiverSocketId = onlineUsers.get(receiverId);
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("newMessage", message);
+      }
+      
+      // Send back to sender
+      socket.emit("messageSent", message);
+      
+    } catch (error) {
+      socket.emit("error", { message: "Failed to send message" });
+    }
+  });
+  
+  // Handle typing indicators
+  socket.on("typing", (data) => {
+    const receiverSocketId = onlineUsers.get(data.receiverId);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("userTyping", {
+        userId: socket.userId,
+        username: socket.user.username
+      });
+    }
+  });
+  
+  socket.on("stopTyping", (data) => {
+    const receiverSocketId = onlineUsers.get(data.receiverId);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("userStoppedTyping", {
+        userId: socket.userId
+      });
+    }
+  });
+  
+  // Handle disconnect
+  socket.on("disconnect", () => {
+    console.log(`👤 User ${socket.user.username} disconnected`);
+    onlineUsers.delete(socket.userId);
+    socket.broadcast.emit("userOffline", socket.userId);
+  });
+});
+
 // Start server
 const PORT = process.env.PORT || 2000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`\n🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
   console.log(`📍 Local: http://localhost:${PORT}`);
   console.log(`📍 Health: http://localhost:${PORT}/api/health`);
   console.log(`📍 DB Test: http://localhost:${PORT}/api/test-db`);
-  console.log(`🌐 CORS enabled for: ${allowedOrigins.join(", ") || "*"}\n`);
+  console.log(`🌐 CORS enabled for: ${allowedOrigins.join(", ") || "*"}`);
+  console.log(`💬 Socket.io enabled for real-time chat\n`);
 });

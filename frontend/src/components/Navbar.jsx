@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Home, Search, Bell, User, LogOut, Menu, X, TrendingUp } from "lucide-react";
+import { Home, Search, Bell, User, LogOut, Menu, X, TrendingUp, MessageCircle } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
 export default function Navbar() {
@@ -16,6 +16,7 @@ export default function Navbar() {
   const navItems = [
     { icon: Home, label: "Home", path: "/home" },
     { icon: Search, label: "Search", path: "/search" },
+    { icon: MessageCircle, label: "Messages", path: "/chat" },
     { icon: Bell, label: "Notifications", path: "/notifications", hasNotification: true },
     { icon: User, label: "Profile", path: "/profile" }
   ];
