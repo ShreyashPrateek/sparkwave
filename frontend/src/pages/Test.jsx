@@ -11,7 +11,7 @@ function Test() {
 
     const testAPI = async () => {
       try {
-        const response = await api.get('/health')
+        const response = await api.get('/api/health')
         setApiStatus(`✅ Connected: ${response.data.status}`)
       } catch (error) {
         setApiStatus(`❌ Failed: ${error.message}`)

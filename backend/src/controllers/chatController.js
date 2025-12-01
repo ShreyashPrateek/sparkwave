@@ -1,6 +1,9 @@
 import mongoose from "mongoose";
 import Message from "../models/Message.js";
 import User from "../models/User.js";
+import { generateAIResponse } from "../services/aiChatService.js";
+import { getOrCreateAIBot } from "../utils/aiBot.js";
+import { checkToxicity } from "../services/moderationService.js";
 
 // Get chat messages between two users
 export const getMessages = async (req, res) => {
@@ -115,6 +118,57 @@ export const markAsRead = async (req, res) => {
     );
 
     res.json({ message: "Messages marked as read" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Send message to AI assistant
+export const sendToAI = async (req, res) => {
+  try {
+    const { text } = req.body;
+    const currentUserId = req.user.id;
+
+    // Check for toxic content
+    const toxicityCheck = await checkToxicity(text);
+    if (toxicityCheck.isToxic) {
+      return res.status(400).json({ 
+        error: "Message violates community guidelines",
+        reason: "toxic_content"
+      });
+    }
+
+    // Get or create AI bot
+    const aiBot = await getOrCreateAIBot();
+    if (!aiBot) {
+      return res.status(500).json({ error: "AI assistant unavailable" });
+    }
+
+    // Save user message
+    const userMessage = new Message({
+      sender: currentUserId,
+      receiver: aiBot._id,
+      text: text.trim()
+    });
+    await userMessage.save();
+    await userMessage.populate("sender", "username name avatar");
+    await userMessage.populate("receiver", "username name avatar");
+
+    // Generate AI response
+    const aiResponse = await generateAIResponse(text);
+
+    // Save AI response
+    const aiMessage = new Message({
+      sender: aiBot._id,
+      receiver: currentUserId,
+      text: aiResponse,
+      isAI: true
+    });
+    await aiMessage.save();
+    await aiMessage.populate("sender", "username name avatar");
+    await aiMessage.populate("receiver", "username name avatar");
+
+    res.json({ userMessage, aiMessage });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

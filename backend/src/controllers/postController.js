@@ -1,8 +1,20 @@
 import Post from "../models/Post.js";
+import { createNotification } from "../utils/notifications.js";
+import { checkToxicity } from "../services/moderationService.js";
 
 // Create Post
 export const createPost = async (req, res) => {
   try {
+    // Check for toxic content
+    const toxicityCheck = await checkToxicity(req.body.text);
+    
+    if (toxicityCheck.isToxic) {
+      return res.status(400).json({ 
+        error: "Content violates community guidelines",
+        reason: "toxic_content"
+      });
+    }
+
     const post = await Post.create({
       user: req.user.id,
       text: req.body.text,
@@ -36,7 +48,7 @@ export const getFeed = async (req, res) => {
 // Like / Unlike Post
 export const toggleLike = async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id);
+    const post = await Post.findById(req.params.id).populate("user");
     if (!post) return res.status(404).json({ message: "Post not found" });
 
     const alreadyLiked = post.likes.includes(req.user.id);
@@ -44,6 +56,15 @@ export const toggleLike = async (req, res) => {
       post.likes.pull(req.user.id);
     } else {
       post.likes.push(req.user.id);
+      
+      // Create like notification
+      await createNotification(req.io, req.onlineUsers, {
+        recipient: post.user._id,
+        sender: req.user.id,
+        type: "like",
+        message: "liked your post",
+        postId: post._id
+      });
     }
 
     await post.save();
@@ -56,11 +77,31 @@ export const toggleLike = async (req, res) => {
 // Add Comment
 export const addComment = async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id);
+    // Check for toxic content
+    const toxicityCheck = await checkToxicity(req.body.text);
+    
+    if (toxicityCheck.isToxic) {
+      return res.status(400).json({ 
+        error: "Comment violates community guidelines",
+        reason: "toxic_content"
+      });
+    }
+
+    const post = await Post.findById(req.params.id).populate("user");
     if (!post) return res.status(404).json({ message: "Post not found" });
 
     post.comments.push({ user: req.user.id, text: req.body.text });
     await post.save();
+    
+    // Create comment notification
+    await createNotification(req.io, req.onlineUsers, {
+      recipient: post.user._id,
+      sender: req.user.id,
+      type: "comment",
+      message: "commented on your post",
+      postId: post._id
+    });
+    
     res.json(post.comments);
   } catch (error) {
     res.status(500).json({ error: error.message });

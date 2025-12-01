@@ -27,7 +27,7 @@ export default function Login() {
     setLoading(true);
     try {
       console.log('🔄 Attempting login to:', api.defaults.baseURL);
-      const res = await api.post("/auth/login", { email, password });
+      const res = await api.post("/api/auth/login", { email, password });
       console.log('✅ Login response:', res.data);
 
       const token = res.data?.accessToken || res.data?.token;

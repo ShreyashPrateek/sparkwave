@@ -2,21 +2,33 @@ import jwt from "jsonwebtoken";
 
 const authMiddleware = (req, res, next) => {
   const authHeader = req.header("Authorization");
-  console.log('🔐 Auth header:', authHeader);
   
-  const token = authHeader?.split(" ")[1];
-  console.log('🎫 Token:', token ? 'Present' : 'Missing');
+  if (!authHeader) {
+    return res.status(401).json({ message: "No authorization header provided" });
+  }
   
-  if (!token) return res.status(401).json({ message: "Access denied" });
+  if (!authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ message: "Invalid authorization format. Use 'Bearer <token>'" });
+  }
+  
+  const token = authHeader.split(" ")[1];
+  
+  if (!token) {
+    return res.status(401).json({ message: "No token provided" });
+  }
 
   try {
     const verified = jwt.verify(token, process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET || 'fallback_secret');
-    console.log('✅ Token verified for user:', verified.id);
     req.user = verified;
     next();
   } catch (error) {
-    console.log('❌ Token verification failed:', error.message);
-    res.status(401).json({ message: "Invalid token" });
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ message: "Token expired", code: "TOKEN_EXPIRED" });
+    }
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ message: "Invalid token", code: "INVALID_TOKEN" });
+    }
+    return res.status(401).json({ message: "Token verification failed" });
   }
 };
 

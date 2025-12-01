@@ -6,6 +6,7 @@ const messageSchema = new mongoose.Schema(
     receiver: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     text: { type: String, required: true },
     read: { type: Boolean, default: false },
+    isAI: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

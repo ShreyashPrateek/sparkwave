@@ -23,7 +23,7 @@ export default function Register() {
 
     setLoading(true);
     try {
-      const res = await api.post("/auth/register", { username, email, password });
+      const res = await api.post("/api/auth/register", { username, email, password });
 
       // Registration successful - redirect to login with success message
       navigate("/login", { 

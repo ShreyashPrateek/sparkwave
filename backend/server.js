@@ -11,8 +11,11 @@ import connectDB from "./src/config/db.js";
 import postRoutes from "./src/routes/post.js";
 import profileRoutes from "./src/routes/profile.js";
 import chatRoutes from "./src/routes/chat.js";
+import notificationRoutes from "./src/routes/notification.js";
 import Message from "./src/models/Message.js";
 import User from "./src/models/User.js";
+import { createNotification } from "./src/utils/notifications.js";
+import { checkToxicity } from "./src/services/moderationService.js";
 
 // Load environment variables
 dotenv.config();
@@ -54,6 +57,9 @@ app.use("/api/users", profileRoutes);
 
 // Chat Routes
 app.use("/api/chat", chatRoutes);
+
+// Notification Routes
+app.use("/api/notifications", notificationRoutes);
 
 
 // Test Protected Route
@@ -141,42 +147,69 @@ const io = new Server(server, {
 
 // Socket.io middleware for authentication
 io.use(async (socket, next) => {
+  console.log('🔐 Socket connection attempt');
+  
+  const token = socket.handshake.auth.token;
+  if (!token) {
+    return next(new Error("No token"));
+  }
+  
   try {
-    const token = socket.handshake.auth.token;
-    if (!token) throw new Error("No token provided");
-    
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET);
     const user = await User.findById(decoded.id).select("-password");
-    if (!user) throw new Error("User not found");
+    
+    if (!user) {
+      return next(new Error("User not found"));
+    }
     
     socket.userId = user._id.toString();
     socket.user = user;
+    console.log('✅ Authenticated:', user.username);
     next();
   } catch (error) {
-    next(new Error("Authentication failed"));
+    console.log('❌ Auth failed:', error.message);
+    return next(new Error("Invalid token"));
   }
 });
 
 // Store online users
 const onlineUsers = new Map();
 
+// Add io and onlineUsers to request object after Socket.io setup
+app.use((req, res, next) => {
+  req.io = io;
+  req.onlineUsers = onlineUsers;
+  next();
+});
+
 // Socket.io connection handling
 io.on("connection", (socket) => {
-  console.log(`👤 User ${socket.user.username} connected`);
+  console.log(`✅ Socket connected: ${socket.user?.username || 'Unknown'}`);
   
-  // Add user to online users
-  onlineUsers.set(socket.userId, socket.id);
-  
-  // Broadcast user online status
-  socket.broadcast.emit("userOnline", socket.userId);
-  
-  // Join user to their own room
-  socket.join(socket.userId);
+  if (socket.userId) {
+    // Add user to online users
+    onlineUsers.set(socket.userId, socket.id);
+    
+    // Broadcast user online status
+    socket.broadcast.emit("userOnline", socket.userId);
+    
+    // Join user to their own room
+    socket.join(socket.userId);
+  }
   
   // Handle sending messages
   socket.on("sendMessage", async (data) => {
     try {
       const { receiverId, text } = data;
+      
+      // Check for toxic content
+      const toxicityCheck = await checkToxicity(text.trim());
+      if (toxicityCheck.isToxic) {
+        socket.emit("messageBlocked", { 
+          reason: "Message blocked due to toxic content"
+        });
+        return;
+      }
       
       // Save message to database
       const message = new Message({
@@ -196,6 +229,14 @@ io.on("connection", (socket) => {
       if (receiverSocketId) {
         io.to(receiverSocketId).emit("newMessage", message);
       }
+      
+      // Create message notification
+      await createNotification(io, onlineUsers, {
+        recipient: receiverId,
+        sender: socket.userId,
+        type: "message",
+        message: `sent you a message`
+      });
       
       // Send back to sender
       socket.emit("messageSent", message);

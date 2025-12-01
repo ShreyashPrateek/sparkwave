@@ -1,5 +1,6 @@
 import User from "../models/User.js";
 import Post from "../models/Post.js";
+import { createNotification } from "../utils/notifications.js";
 
 // Get User Profile
 export const getUserProfile = async (req, res) => {
@@ -45,6 +46,14 @@ export const followUser = async (req, res) => {
     if (!targetUser.followers.includes(req.user.id)) {
       targetUser.followers.push(req.user.id);
       currentUser.following.push(targetUser._id);
+      
+      // Create follow notification
+      await createNotification(req.io, req.onlineUsers, {
+        recipient: targetUser._id,
+        sender: req.user.id,
+        type: "follow",
+        message: "started following you"
+      });
     }
 
     await targetUser.save();
@@ -71,6 +80,123 @@ export const unfollowUser = async (req, res) => {
     await currentUser.save();
 
     res.json({ message: "Unfollowed successfully" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Search Users
+export const searchUsers = async (req, res) => {
+  try {
+    const { q } = req.query;
+    const currentUserId = req.user.id;
+    
+    if (!q || q.trim().length < 2) {
+      return res.json([]);
+    }
+
+    const users = await User.find({
+      _id: { $ne: currentUserId },
+      $or: [
+        { username: { $regex: q, $options: 'i' } },
+        { name: { $regex: q, $options: 'i' } }
+      ]
+    })
+    .select('username name bio avatar followers following')
+    .limit(20);
+
+    // Add follow status for each user
+    const usersWithFollowStatus = users.map(user => ({
+      ...user.toObject(),
+      isFollowing: user.followers.includes(currentUserId),
+      followersCount: user.followers.length,
+      followingCount: user.following.length
+    }));
+
+    res.json(usersWithFollowStatus);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Get Suggested Users
+export const getSuggestedUsers = async (req, res) => {
+  try {
+    const currentUserId = req.user.id;
+    const currentUser = await User.findById(currentUserId);
+    
+    // Get users not followed by current user
+    const suggestedUsers = await User.find({
+      _id: { 
+        $ne: currentUserId,
+        $nin: currentUser.following
+      }
+    })
+    .select('username name bio avatar followers following')
+    .limit(10)
+    .sort({ createdAt: -1 });
+
+    const usersWithCounts = suggestedUsers.map(user => ({
+      ...user.toObject(),
+      followersCount: user.followers.length,
+      followingCount: user.following.length
+    }));
+
+    res.json(usersWithCounts);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Get Followers
+export const getFollowers = async (req, res) => {
+  try {
+    const userId = req.params.id === 'me' ? req.user.id : req.params.id;
+    const currentUserId = req.user.id;
+    
+    const user = await User.findById(userId)
+      .populate('followers', 'username name bio avatar followers following')
+      .select('followers');
+    
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    
+    const followersWithCounts = user.followers.map(follower => ({
+      ...follower.toObject(),
+      followersCount: follower.followers?.length || 0,
+      followingCount: follower.following?.length || 0,
+      isFollowing: follower.followers?.includes(currentUserId) || false
+    }));
+    
+    res.json(followersWithCounts);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Get Following
+export const getFollowing = async (req, res) => {
+  try {
+    const userId = req.params.id === 'me' ? req.user.id : req.params.id;
+    const currentUserId = req.user.id;
+    
+    const user = await User.findById(userId)
+      .populate('following', 'username name bio avatar followers following')
+      .select('following');
+    
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    
+    const followingWithCounts = user.following.map(following => ({
+      ...following.toObject(),
+      followersCount: following.followers?.length || 0,
+      followingCount: following.following?.length || 0,
+      isFollowing: following.followers?.includes(currentUserId) || false
+    }));
+    
+    res.json(followingWithCounts);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

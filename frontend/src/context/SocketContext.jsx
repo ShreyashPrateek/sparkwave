@@ -14,19 +14,41 @@ export const useSocket = () => {
 
 export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
+  const [connectionStatus, setConnectionStatus] = useState('disconnected');
   const [onlineUsers, setOnlineUsers] = useState(new Set());
+  const [notifications, setNotifications] = useState([]);
   const { user, isAuthenticated } = useAuth();
 
   useEffect(() => {
     if (isAuthenticated && user) {
       const token = localStorage.getItem("token");
-      const newSocket = io(import.meta.env.VITE_API_URL || "http://localhost:2000", {
-        auth: { token }
+      
+      if (!token) {
+        console.error("No token found for socket connection");
+        return;
+      }
+      
+      const serverUrl = "http://localhost:2000";
+      
+      console.log("🔌 Connecting to:", serverUrl);
+      console.log("Token:", token.substring(0, 20) + "...");
+      
+      const newSocket = io(serverUrl, {
+        auth: { token },
+        transports: ['websocket', 'polling'],
+        timeout: 5000
       });
 
       newSocket.on("connect", () => {
-        console.log("Connected to server");
+        console.log("✅ Connected to chat server");
         setSocket(newSocket);
+        setConnectionStatus('connected');
+      });
+      
+      newSocket.on("connect_error", (error) => {
+        console.error("❌ Socket connection error:", error.message);
+        setConnectionStatus('error');
+        setSocket(null);
       });
 
       newSocket.on("userOnline", (userId) => {
@@ -41,9 +63,14 @@ export const SocketProvider = ({ children }) => {
         });
       });
 
-      newSocket.on("disconnect", () => {
-        console.log("Disconnected from server");
+      newSocket.on("newNotification", (notification) => {
+        setNotifications(prev => [notification, ...prev]);
+      });
+
+      newSocket.on("disconnect", (reason) => {
+        console.log("❌ Disconnected from server:", reason);
         setSocket(null);
+        setConnectionStatus('disconnected');
       });
 
       return () => {
@@ -57,7 +84,10 @@ export const SocketProvider = ({ children }) => {
   const value = {
     socket,
     onlineUsers,
-    isConnected: !!socket
+    notifications,
+    setNotifications,
+    isConnected: !!socket && connectionStatus === 'connected',
+    connectionStatus
   };
 
   return (

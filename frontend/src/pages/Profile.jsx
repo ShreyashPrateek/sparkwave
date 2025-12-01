@@ -1,11 +1,14 @@
 import { useState, useEffect } from "react";
 import { Edit2, MapPin, Calendar, ExternalLink, Heart, MessageCircle, Share2, Grid, Bookmark, Camera, Settings } from "lucide-react";
 import Navbar from "../components/Navbar";
+import FollowModal from "../components/FollowModal";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 import api from "../api/axios";
 
 export default function SparkWaveProfile() {
   const { user, updateUser } = useAuth();
+  const { success, error } = useToast();
   const [activeTab, setActiveTab] = useState("posts");
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -21,14 +24,25 @@ export default function SparkWaveProfile() {
     coverGradient: "from-purple-500 to-pink-500"
   });
 
+  const [stats, setStats] = useState({
+    posts: 0,
+    followers: 0,
+    following: 0
+  });
+
   const [profileLoaded, setProfileLoaded] = useState(false);
+  const [userPosts, setUserPosts] = useState([]);
+  const [showFollowModal, setShowFollowModal] = useState(false);
+  const [modalType, setModalType] = useState('followers');
+  const [currentUserId, setCurrentUserId] = useState(null);
 
   useEffect(() => {
     const fetchProfile = async () => {
       if (user && !profileLoaded) {
         try {
-          const res = await api.get('/users/me');
+          const res = await api.get('/api/users/me');
           const userData = res.data;
+          
           setProfile({
             name: userData.name || userData.username,
             username: `@${userData.username}`,
@@ -39,6 +53,21 @@ export default function SparkWaveProfile() {
             avatar: (userData.name || userData.username).slice(0, 2).toUpperCase(),
             coverGradient: "from-purple-500 to-pink-500"
           });
+          
+          setStats({
+            posts: 0, // Will be updated when we fetch user posts
+            followers: userData.followers?.length || 0,
+            following: userData.following?.length || 0
+          });
+          
+          // Store user ID for modal
+          setCurrentUserId(userData._id);
+          
+          // Fetch user's posts
+          const postsRes = await api.get(`/api/users/${userData._id}/posts`);
+          setUserPosts(postsRes.data);
+          setStats(prev => ({ ...prev, posts: postsRes.data.length }));
+          
           setProfileLoaded(true);
         } catch (error) {
           console.error('Failed to fetch profile:', error);
@@ -57,50 +86,16 @@ export default function SparkWaveProfile() {
     fetchProfile();
   }, [user, profileLoaded]);
 
-  const [stats] = useState({
-    posts: 156,
-    followers: 2847,
-    following: 392
-  });
-
-  const [posts] = useState([
-    {
-      id: 1,
-      content: "Just shipped a new feature! The team worked incredibly hard on this. So proud of everyone! 🚀",
-      time: "2h ago",
-      likes: 234,
-      comments: 45,
-      shares: 12,
-      liked: true
-    },
-    {
-      id: 2,
-      content: "Beautiful morning walk today. Sometimes the best ideas come when you step away from the screen. 🌅",
-      time: "1d ago",
-      likes: 512,
-      comments: 89,
-      shares: 34,
-      liked: false
-    },
-    {
-      id: 3,
-      content: "New blog post: 'The Future of Social Media' - Check it out! Link in bio 📝",
-      time: "2d ago",
-      likes: 387,
-      comments: 156,
-      shares: 78,
-      liked: true
-    },
-    {
-      id: 4,
-      content: "Coffee shop recommendations? Looking for new spots to work from! ☕️",
-      time: "3d ago",
-      likes: 156,
-      comments: 203,
-      shares: 45,
-      liked: false
-    }
-  ]);
+  const formatTime = (date) => {
+    const now = new Date();
+    const postDate = new Date(date);
+    const diffInMinutes = Math.floor((now - postDate) / (1000 * 60));
+    
+    if (diffInMinutes < 1) return "now";
+    if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+    if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}h ago`;
+    return `${Math.floor(diffInMinutes / 1440)}d ago`;
+  };
 
   const [savedPosts] = useState([
     {
@@ -127,8 +122,22 @@ export default function SparkWaveProfile() {
     }
   ]);
 
-  const handleLike = (postId) => {
-    console.log("Liked post:", postId);
+  const handleLike = async (postId) => {
+    try {
+      await api.post(`/api/posts/${postId}/like`);
+      // Update local post state
+      setUserPosts(prev => 
+        prev.map(post => 
+          post._id === postId 
+            ? { ...post, likes: post.likes?.includes(user.id) 
+                ? post.likes.filter(id => id !== user.id)
+                : [...(post.likes || []), user.id] }
+            : post
+        )
+      );
+    } catch (error) {
+      console.error("Error liking post:", error);
+    }
   };
 
   const handleSaveProfile = async () => {
@@ -146,7 +155,7 @@ export default function SparkWaveProfile() {
       };
       
       console.log('📤 Sending update data:', updateData);
-      const response = await api.put('/users/profile', updateData);
+      const response = await api.put('/api/users/profile', updateData);
       console.log('✅ Profile updated successfully:', response.data);
       
       // Update AuthContext with new user data
@@ -169,11 +178,11 @@ export default function SparkWaveProfile() {
       }));
       
       setIsEditing(false);
-      alert('Profile updated successfully!');
+      success('Profile updated successfully!');
     } catch (error) {
       console.error('❌ Failed to update profile:', error);
       console.error('Error details:', error.response?.data);
-      alert(error.response?.data?.message || 'Failed to update profile');
+      error(error.response?.data?.message || 'Failed to update profile');
     } finally {
       setLoading(false);
     }
@@ -188,79 +197,96 @@ export default function SparkWaveProfile() {
 
       <Navbar />
 
-      <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="backdrop-blur-lg bg-white bg-opacity-10 rounded-3xl border border-white border-opacity-20 overflow-hidden mb-6">
-          <div className={`h-48 bg-gradient-to-r ${profile.coverGradient} relative`}>
+      <div className="relative z-10 max-w-5xl mx-auto px-2 sm:px-4 lg:px-8 py-4 sm:py-8">
+        <div className="backdrop-blur-lg bg-white bg-opacity-10 rounded-2xl sm:rounded-3xl border border-white border-opacity-20 overflow-hidden mb-4 sm:mb-6">
+          <div className={`h-32 sm:h-48 bg-gradient-to-r ${profile.coverGradient} relative`}>
             <button className="absolute top-4 right-4 p-2 bg-white bg-opacity-20 backdrop-blur-lg rounded-lg text-white hover:bg-opacity-30 transition-all">
               <Camera size={20} />
             </button>
           </div>
 
-          <div className="px-6 pb-6">
-            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between -mt-16 sm:-mt-12 mb-4">
+          <div className="px-3 sm:px-6 pb-4 sm:pb-6">
+            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between -mt-12 sm:-mt-16 mb-4">
               <div className="relative mb-4 sm:mb-0">
-                <div className="w-32 h-32 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full border-4 border-purple-900 flex items-center justify-center text-white text-4xl font-bold">
+                <div className="w-24 h-24 sm:w-32 sm:h-32 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full border-4 border-purple-900 flex items-center justify-center text-white text-2xl sm:text-4xl font-bold">
                   {profile.avatar}
                 </div>
-                <button className="absolute bottom-2 right-2 p-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full text-white hover:shadow-lg transform hover:scale-110 transition-all">
-                  <Camera size={16} />
+                <button className="absolute bottom-1 right-1 sm:bottom-2 sm:right-2 p-1.5 sm:p-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full text-white hover:shadow-lg transform hover:scale-110 transition-all">
+                  <Camera size={14} />
                 </button>
               </div>
 
-              <div className="flex gap-3">
+              <div className="flex gap-2 sm:gap-3">
                 <button
                   onClick={() => setIsEditing(!isEditing)}
-                  className="px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl text-white font-semibold hover:shadow-lg transform hover:scale-105 transition-all flex items-center gap-2"
+                  className="px-3 sm:px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg sm:rounded-xl text-white font-semibold hover:shadow-lg transform hover:scale-105 transition-all flex items-center gap-1 sm:gap-2 text-sm sm:text-base"
                 >
-                  {isEditing ? <Settings size={18} /> : <Edit2 size={18} />}
-                  {isEditing ? "Settings" : "Edit Profile"}
+                  {isEditing ? <Settings size={16} /> : <Edit2 size={16} />}
+                  <span className="hidden sm:inline">{isEditing ? "Settings" : "Edit Profile"}</span>
+                  <span className="sm:hidden">{isEditing ? "Settings" : "Edit"}</span>
                 </button>
               </div>
             </div>
 
             {!isEditing ? (
-              <div className="space-y-4">
+              <div className="space-y-3 sm:space-y-4">
                 <div>
-                  <h2 className="text-3xl font-bold text-white mb-1">{profile.name}</h2>
-                  <p className="text-purple-200">{profile.username}</p>
+                  <h2 className="text-xl sm:text-3xl font-bold text-white mb-1">{profile.name}</h2>
+                  <p className="text-purple-200 text-sm sm:text-base">{profile.username}</p>
                 </div>
 
-                <p className="text-white text-lg">{profile.bio}</p>
+                <p className="text-white text-sm sm:text-lg">{profile.bio}</p>
 
-                <div className="flex flex-wrap gap-4 text-purple-200">
-                  <div className="flex items-center gap-2">
-                    <MapPin size={18} />
-                    <span>{profile.location}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <ExternalLink size={18} />
-                    <a href={`https://${profile.website}`} className="hover:text-white transition-colors">
-                      {profile.website}
-                    </a>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Calendar size={18} />
+                <div className="flex flex-wrap gap-3 sm:gap-4 text-purple-200 text-xs sm:text-sm">
+                  {profile.location && (
+                    <div className="flex items-center gap-1 sm:gap-2">
+                      <MapPin size={14} />
+                      <span>{profile.location}</span>
+                    </div>
+                  )}
+                  {profile.website && (
+                    <div className="flex items-center gap-1 sm:gap-2">
+                      <ExternalLink size={14} />
+                      <a href={`https://${profile.website}`} className="hover:text-white transition-colors truncate">
+                        {profile.website}
+                      </a>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1 sm:gap-2">
+                    <Calendar size={14} />
                     <span>Joined {profile.joinDate}</span>
                   </div>
                 </div>
 
-                <div className="flex gap-6 pt-4 border-t border-white border-opacity-20">
+                <div className="flex gap-4 sm:gap-6 pt-3 sm:pt-4 border-t border-white border-opacity-20">
                   <div>
-                    <span className="text-white font-bold text-xl">{stats.posts}</span>
-                    <span className="text-purple-200 ml-2">Posts</span>
+                    <span className="text-white font-bold text-lg sm:text-xl">{stats.posts}</span>
+                    <span className="text-purple-200 ml-1 sm:ml-2 text-sm sm:text-base">Posts</span>
                   </div>
-                  <button className="hover:scale-105 transition-transform">
-                    <span className="text-white font-bold text-xl">{stats.followers}</span>
-                    <span className="text-purple-200 ml-2">Followers</span>
+                  <button 
+                    onClick={() => {
+                      setModalType('followers');
+                      setShowFollowModal(true);
+                    }}
+                    className="hover:scale-105 transition-transform"
+                  >
+                    <span className="text-white font-bold text-lg sm:text-xl">{stats.followers}</span>
+                    <span className="text-purple-200 ml-1 sm:ml-2 text-sm sm:text-base">Followers</span>
                   </button>
-                  <button className="hover:scale-105 transition-transform">
-                    <span className="text-white font-bold text-xl">{stats.following}</span>
-                    <span className="text-purple-200 ml-2">Following</span>
+                  <button 
+                    onClick={() => {
+                      setModalType('following');
+                      setShowFollowModal(true);
+                    }}
+                    className="hover:scale-105 transition-transform"
+                  >
+                    <span className="text-white font-bold text-lg sm:text-xl">{stats.following}</span>
+                    <span className="text-purple-200 ml-1 sm:ml-2 text-sm sm:text-base">Following</span>
                   </button>
                 </div>
               </div>
             ) : (
-              <div className="space-y-4 mt-4">
+              <div className="space-y-3 sm:space-y-4 mt-3 sm:mt-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="text-purple-200 text-sm mb-2 block">Name</label>
@@ -323,7 +349,7 @@ export default function SparkWaveProfile() {
                   <button
                     onClick={handleSaveProfile}
                     disabled={loading}
-                    className="px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl text-white font-semibold hover:shadow-lg transform hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                    className="px-4 sm:px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg sm:rounded-xl text-white font-semibold hover:shadow-lg transform hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none text-sm sm:text-base"
                   >
                     {loading ? "Saving..." : "Save Changes"}
                   </button>
@@ -363,9 +389,9 @@ export default function SparkWaveProfile() {
         <div className="space-y-6">
           {activeTab === "posts" && (
             <>
-              {posts.map(post => (
+              {userPosts.length > 0 ? userPosts.map(post => (
                 <div
-                  key={post.id}
+                  key={post._id}
                   className="backdrop-blur-lg bg-white bg-opacity-10 rounded-2xl p-6 border border-white border-opacity-20 hover:bg-opacity-15 transition-all"
                 >
                   <div className="flex items-start gap-4">
@@ -376,35 +402,40 @@ export default function SparkWaveProfile() {
                       <div className="flex items-center justify-between mb-2">
                         <div>
                           <h3 className="text-white font-semibold">{profile.name}</h3>
-                          <p className="text-purple-200 text-sm">{profile.username} · {post.time}</p>
+                          <p className="text-purple-200 text-sm">{profile.username} · {formatTime(post.createdAt)}</p>
                         </div>
                       </div>
-                      <p className="text-white mb-4">{post.content}</p>
+                      <p className="text-white mb-4">{post.text}</p>
                       
                       <div className="flex items-center gap-6">
                         <button
-                          onClick={() => handleLike(post.id)}
+                          onClick={() => handleLike(post._id)}
                           className="flex items-center gap-2 text-purple-200 hover:text-pink-400 transition-colors group"
                         >
                           <Heart
                             size={20}
-                            className={post.liked ? "fill-pink-400 text-pink-400" : "group-hover:scale-110 transition-transform"}
+                            className="group-hover:scale-110 transition-transform"
                           />
-                          <span className="text-sm">{post.likes}</span>
+                          <span className="text-sm">{post.likes?.length || 0}</span>
                         </button>
                         <button className="flex items-center gap-2 text-purple-200 hover:text-purple-400 transition-colors">
                           <MessageCircle size={20} />
-                          <span className="text-sm">{post.comments}</span>
+                          <span className="text-sm">{post.comments?.length || 0}</span>
                         </button>
                         <button className="flex items-center gap-2 text-purple-200 hover:text-purple-400 transition-colors">
                           <Share2 size={20} />
-                          <span className="text-sm">{post.shares}</span>
+                          <span className="text-sm">0</span>
                         </button>
                       </div>
                     </div>
                   </div>
                 </div>
-              ))}
+              )) : (
+                <div className="text-center py-8 backdrop-blur-lg bg-white bg-opacity-10 rounded-2xl border border-white border-opacity-20">
+                  <p className="text-purple-200 mb-4">No posts yet!</p>
+                  <p className="text-purple-300 text-sm">Share your first post to get started</p>
+                </div>
+              )}
             </>
           )}
 
@@ -451,6 +482,13 @@ export default function SparkWaveProfile() {
           )}
         </div>
       </div>
+      
+      <FollowModal
+        isOpen={showFollowModal}
+        onClose={() => setShowFollowModal(false)}
+        type={modalType}
+        userId={currentUserId}
+      />
     </div>
   );
 }
